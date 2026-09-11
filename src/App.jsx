@@ -25,9 +25,10 @@ import { demoPhoto } from "./lib/demo.js";
 import { loadSnapshot, persistDiff, selfTest, clearAll, requestPersistence } from "./data/db.js";
 import { createPhotoStore } from "./data/photos.js";
 import { getSupabase, cloudConfigured } from "./data/supabase.js";
+import { stampChanges, EMPTY_SYNC, runSync, downloadPhoto, dirtyCount, pendingPhotos, fetchFleetRows, planFleetImport, applyFleetImport, markAllDirty } from "./data/sync.js";
 import { compareZone } from "./ai/client.js";
 
-export const INITIAL = { seq: 0, units: [], inspections: [], registry: [], layouts: [], settings: { ghostOpacity: 45, quality: "standard", autoAdvance: true, autoDownload: false } };
+export const INITIAL = { seq: 0, units: [], inspections: [], registry: [], layouts: [], settings: { ghostOpacity: 45, quality: "standard", autoAdvance: true, autoDownload: false }, sync: EMPTY_SYNC, photoMeta: {} };
 export const normalize = (d) => ({
   ...INITIAL, ...d,
   settings: { ...INITIAL.settings, ...(d.settings || {}) },
@@ -35,11 +36,19 @@ export const normalize = (d) => ({
   inspections: (d.inspections || []).map((i) => ({ zones: {}, analysis: {}, findings: [], ...i })),
   registry: d.registry || [],
   layouts: (d.layouts || []).filter((l) => l && l.id && Array.isArray(l.interior)),
+  sync: { ...EMPTY_SYNC, ...(d.sync || {}), dirty: (d.sync && d.sync.dirty) || {}, tombstones: (d.sync && d.sync.tombstones) || [], cursors: (d.sync && d.sync.cursors) || {} },
+  photoMeta: d.photoMeta || {},
 });
 
 export default function App() {
-  const [data, setData] = useState(INITIAL);
+  const [data, setDataRaw] = useState(INITIAL);
+  // Every user-originated change goes through stampChanges so it gets updatedAt + a dirty mark
+  // for sync. Server data and sync bookkeeping use setDataRaw directly.
+  const setData = useCallback((fn) => setDataRaw((prev) => stampChanges(prev, typeof fn === "function" ? fn(prev) : fn)), []);
   const [loaded, setLoaded] = useState(false);
+  const [syncState, setSyncState] = useState({ running: false, progress: "", error: null, last: null });
+  const [fleetImport, setFleetImport] = useState(null);
+  const syncingRef = useRef(false);
   const [storageInfo, setStorageInfo] = useState({ ok: false, note: "Checking storage…" });
   const [session, setSession] = useState(null);
   const [auth, setAuth] = useState({ busy: false, error: "" });
@@ -66,7 +75,15 @@ export default function App() {
   const persistedRef = useRef(null);
   const cancelRef = useRef(false);
   const toastTimer = useRef(null);
-  const photos = useMemo(() => createPhotoStore(null), []);
+  const photos = useMemo(() => createPhotoStore(null, {
+    // Photos shot on another phone: download from the bucket the first time they're shown.
+    fetchRemote: async (id) => {
+      const m = dataRef.current.photoMeta[id]; const sb = getSupabase();
+      if (!m || !m.path || !sb) return null;
+      const { data: sess } = await sb.auth.getSession(); if (!sess || !sess.session) return null;
+      return downloadPhoto(sb, m.path);
+    },
+  }), []);
 
   const say = useCallback((msg) => { setToast(msg); clearTimeout(toastTimer.current); toastTimer.current = setTimeout(() => setToast(""), 3200); }, []);
 
@@ -79,9 +96,9 @@ export default function App() {
       if (alive) setStorageInfo(st);
       try {
         const snap = await loadSnapshot();
-        const next = normalize({ ...snap, settings: snap.settings || undefined });
+        const next = normalize({ ...snap, settings: snap.settings || undefined, sync: snap.sync || undefined, photoMeta: snap.photoMeta || undefined });
         persistedRef.current = next;
-        if (alive) setData(next);
+        if (alive) setDataRaw(next);
       } catch (e) { if (alive) say("Records couldn't be loaded from this device."); }
       if (alive) setLoaded(true);
     })();
@@ -112,7 +129,7 @@ export default function App() {
   const top = stack[stack.length - 1] || null;
 
   /* ---- data helpers ---- */
-  const patchInsp = (id, fn) => setData((d) => ({ ...d, inspections: d.inspections.map((i) => (i.id === id ? (typeof fn === "function" ? fn(i) : { ...i, ...fn }) : i)) }));
+  const patchInsp = useCallback((id, fn) => setData((d) => ({ ...d, inspections: d.inspections.map((i) => (i.id === id ? (typeof fn === "function" ? fn(i) : { ...i, ...fn }) : i)) })), [setData]);
   const patchUnit = (id, patch) => setData((d) => ({ ...d, units: d.units.map((u) => (u.id === id ? { ...u, ...patch } : u)) }));
   const patchEntry = (id, patch) => setData((d) => ({ ...d, registry: d.registry.map((r) => (r.id === id ? { ...r, ...patch } : r)) }));
   const setSettings = (s) => setData((d) => ({ ...d, settings: s }));
@@ -131,6 +148,7 @@ export default function App() {
     d.inspections.filter((i) => i.unitId === id).forEach((i) => Object.values(i.zones).forEach((z) => z.photoId && photos.remove(z.photoId)));
     d.registry.filter((r) => r.unitId === id && r.photoId && !r.inspectionId).forEach((r) => photos.remove(r.photoId));
     setData((dd) => ({ ...dd, units: dd.units.filter((u) => u.id !== id), inspections: dd.inspections.filter((i) => i.unitId !== id), registry: dd.registry.filter((r) => r.unitId !== id) }));
+    setDataRaw((dd) => ({ ...dd, photoMeta: Object.fromEntries(Object.entries(dd.photoMeta).filter(([, m]) => m.unitId !== id)) }));
     setUnitForm(null); setStack([]); say("Unit removed");
   };
 
@@ -224,7 +242,7 @@ export default function App() {
     setAnalyzing(null);
     patchInsp(inspId, { status: "review" });
     setStack((s) => { const t = s[s.length - 1]; return t && t.name === "inspection" && t.inspId === inspId ? [...s.slice(0, -1), { name: "review", inspId }] : s; });
-  }, [photos, say]);
+  }, [photos, say, patchInsp]);
   useEffect(() => { if (rerun) { runComparison(rerun.inspId, [rerun.zoneId]); setRerun(null); } // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rerun]);
 
@@ -243,6 +261,8 @@ export default function App() {
     if (!res.ok) { say("That photo didn't save to this device. Try again, or switch to Data saver size in Settings."); return; }
     const old = insp.zones[zid] && insp.zones[zid].photoId;
     if (old && old !== id) photos.remove(old);
+    const u0 = unitOf(insp.unitId);
+    setDataRaw((d) => { const meta = { ...d.photoMeta }; if (old && old !== id) delete meta[old]; meta[id] = { unitId: insp.unitId, inspectionId: insp.id, zoneId: zid, takenAt: Date.now(), bytes: res.bytes, w: shot.w, h: shot.h, uploaded: false, demo: !!(u0 && u0.demo) }; return { ...d, photoMeta: meta }; });
     patchInsp(insp.id, (x) => {
       const analysis = { ...x.analysis }; delete analysis[zid];
       return { ...x, zones: { ...x.zones, [zid]: { photoId: id, w: shot.w, h: shot.h, takenAt: Date.now(), skipped: false } },
@@ -278,7 +298,11 @@ export default function App() {
   const saveLoggedDamage = async (f) => {
     if (f.photo && dataRef.current.settings.autoDownload) { const u = unitOf(f.unitId); downloadHref(f.photo.dataUrl, `${slug(u ? u.name : "unit")}_${localDate()}_logged_${slug(zoneLabel(dataRef.current, f.unitId, f.zoneId))}.jpg`); }
     let photoId = null;
-    if (f.photo) { photoId = uid(); const r = await photos.put(photoId, f.photo.dataUrl, { w: f.photo.w, h: f.photo.h }); if (!r.ok) photoId = null; }
+    if (f.photo) {
+      photoId = uid(); const r = await photos.put(photoId, f.photo.dataUrl, { w: f.photo.w, h: f.photo.h });
+      if (!r.ok) photoId = null;
+      else { const pid = photoId; const u0 = unitOf(f.unitId); setDataRaw((d) => ({ ...d, photoMeta: { ...d.photoMeta, [pid]: { unitId: f.unitId, inspectionId: null, zoneId: f.zoneId, takenAt: Date.now(), bytes: r.bytes, w: f.photo.w, h: f.photo.h, uploaded: false, demo: !!(u0 && u0.demo) } } })); }
+    }
     setData((d) => { const seq = (d.seq || 0) + 1; return { ...d, seq, registry: [...d.registry, { id: uid(), code: nextCode(seq), unitId: f.unitId, zoneId: f.zoneId, title: f.title.trim(), description: f.description, locationText: f.locationText, x: null, y: null, severity: f.severity, status: "open", foundAt: Date.now(), inspectionId: null, renter: "", photoId, notes: "", estCost: "", billed: false, origin: "manual" }] }; });
     setLogDamage(null); say("Damage logged");
   };
@@ -296,23 +320,26 @@ export default function App() {
   const loadDemo = async () => {
     say("Building the sample fleet…");
     const now = Date.now(), day = 86400000;
-    const u1 = { id: uid(), name: "Trailer 3", year: "2023", make: "Grand Design", model: "Imagine 2500RL", length: "30", plate: "CTX-3", status: "out", layoutId: "default", createdAt: now };
-    const u2 = { id: uid(), name: "Trailer 5", year: "2022", make: "Forest River", model: "Salem 22RBS", length: "26", plate: "CTX-5", status: "available", layoutId: "default", createdAt: now };
-    const u3 = { id: uid(), name: "Trailer 8", year: "2024", make: "Jayco", model: "Jay Flight 264BH", length: "30", plate: "CTX-8", status: "maintenance", layoutId: "default", createdAt: now };
-    const dep = { ...newDeparture(u1.id, DEFAULT_LAYOUT, now - 4 * day), status: "complete", completedAt: now - 4 * day + 1200000, renter: "Sample renter (Hayes)", booking: "OD-48213" };
-    const ret = { ...newReturn(u1.id, dep, DEFAULT_LAYOUT, now), renter: "Sample renter (Hayes)", booking: "OD-48213" };
+    // Sample data is flagged demo and never syncs to the cloud.
+    const u1 = { id: uid(), name: "Trailer 3", year: "2023", make: "Grand Design", model: "Imagine 2500RL", length: "30", plate: "CTX-3", status: "out", layoutId: "default", createdAt: now, demo: true };
+    const u2 = { id: uid(), name: "Trailer 5", year: "2022", make: "Forest River", model: "Salem 22RBS", length: "26", plate: "CTX-5", status: "available", layoutId: "default", createdAt: now, demo: true };
+    const u3 = { id: uid(), name: "Trailer 8", year: "2024", make: "Jayco", model: "Jay Flight 264BH", length: "30", plate: "CTX-8", status: "maintenance", layoutId: "default", createdAt: now, demo: true };
+    const dep = { ...newDeparture(u1.id, DEFAULT_LAYOUT, now - 4 * day), status: "complete", completedAt: now - 4 * day + 1200000, renter: "Sample renter (Hayes)", booking: "OD-48213", demo: true };
+    const ret = { ...newReturn(u1.id, dep, DEFAULT_LAYOUT, now), renter: "Sample renter (Hayes)", booking: "OD-48213", demo: true };
+    const demoMeta = {};
     for (const k of ["ds_side", "ps_side", "rear"]) {
       for (const [insp, phase] of [[dep, "before"], [ret, "after"]]) {
         const id = uid();
         const r = await photos.put(id, demoPhoto(k, phase), { w: 1024, h: 768 });
         if (!r.ok) { say("Sample photos couldn't be saved. Check storage in Settings."); return; }
         insp.zones[k] = { photoId: id, w: 1024, h: 768, takenAt: phase === "before" ? dep.completedAt - 600000 : now - 300000, skipped: false };
+        demoMeta[id] = { unitId: u1.id, inspectionId: insp.id, zoneId: k, takenAt: insp.zones[k].takenAt, bytes: r.bytes, w: 1024, h: 768, uploaded: false, demo: true };
       }
     }
     setData((d) => {
       const seq = (d.seq || 0) + 1;
-      const seed = { id: uid(), code: nextCode(seq), unitId: u1.id, zoneId: "rear", title: "Scuff on rear bumper", description: "Grey paint transfer from a previous renter's hitch. Cosmetic.", locationText: "lower left of the bumper, below the tail light", x: 30, y: 78, severity: "minor", status: "open", foundAt: now - 40 * day, inspectionId: null, renter: "", photoId: null, notes: "", estCost: "", billed: false, origin: "manual" };
-      return { ...d, seq, units: [...d.units, u1, u2, u3], inspections: [...d.inspections, dep, ret], registry: [...d.registry, seed] };
+      const seed = { id: uid(), code: nextCode(seq), unitId: u1.id, zoneId: "rear", title: "Scuff on rear bumper", description: "Grey paint transfer from a previous renter's hitch. Cosmetic.", locationText: "lower left of the bumper, below the tail light", x: 30, y: 78, severity: "minor", status: "open", foundAt: now - 40 * day, inspectionId: null, renter: "", photoId: null, notes: "", estCost: "", billed: false, origin: "manual", demo: true };
+      return { ...d, seq, units: [...d.units, u1, u2, u3], inspections: [...d.inspections, dep, ret], registry: [...d.registry, seed], photoMeta: { ...d.photoMeta, ...demoMeta } };
     });
     setTab("fleet"); setStack([{ name: "unit", unitId: u1.id }, { name: "inspection", inspId: ret.id }]);
     say("Sample fleet loaded. Tap Run comparison to try the AI.");
@@ -363,9 +390,12 @@ export default function App() {
       }
       const inc = normalize({ units: records.units, inspections: records.inspections, registry: records.registry, layouts: records.layouts, seq: records.seq });
       const summary = { photos: restored, skipped, failed };
+      const metaFromRecs = (base) => { const meta = { ...base }; for (const p of recs) if (!meta[p.id]) meta[p.id] = { unitId: p.unitId, inspectionId: p.inspectionId || null, zoneId: p.zoneId, takenAt: p.takenAt, uploaded: false }; return meta; };
       let next;
       if (mode === "replace") {
-        next = { ...inc, settings: { ...cur.settings } };
+        // Device-local operation: nothing is tombstoned in the cloud. Restored records are marked
+        // dirty so they push, and cursors reset so the next sync pulls the full cloud state back.
+        next = markAllDirty({ ...inc, settings: { ...cur.settings }, photoMeta: metaFromRecs({}), sync: { ...EMPTY_SYNC } });
         summary.units = inc.units.length; summary.inspections = inc.inspections.length; summary.registry = inc.registry.length;
       } else {
         const mergeById = (have, add) => { const ids = new Set(have.map((x) => x.id)); const fresh = add.filter((x) => !ids.has(x.id)); return [[...have, ...fresh], fresh.length]; };
@@ -373,10 +403,10 @@ export default function App() {
         let seq = Math.max(cur.seq || 0, inc.seq || 0);
         const codes = new Set(cur.registry.map((r) => r.code)); const ids = new Set(cur.registry.map((r) => r.id));
         const freshReg = inc.registry.filter((r) => !ids.has(r.id)).map((r) => { if (codes.has(r.code)) { seq++; const c = nextCode(seq); codes.add(c); return { ...r, code: c }; } codes.add(r.code); return r; });
-        next = { ...cur, seq, units, inspections, layouts, registry: [...cur.registry, ...freshReg] };
+        next = { ...cur, seq, units, inspections, layouts, registry: [...cur.registry, ...freshReg], photoMeta: metaFromRecs(cur.photoMeta) };
         summary.units = nu; summary.inspections = ni; summary.registry = freshReg.length;
       }
-      setData(next);
+      if (mode === "replace") setDataRaw(next); else setData(next);
       setRestore({ status: "done", summary });
       say(mode === "replace" ? "This device now matches the backup" : "Backup merged");
     } catch (e) { setRestore({ status: "error", error: e.message || "Couldn't read that file." }); }
@@ -385,7 +415,7 @@ export default function App() {
     photos.revokeAll();
     try { await clearAll(); } catch (e) {}
     persistedRef.current = INITIAL;
-    setData(INITIAL); setStack([]); setTab("fleet"); setBackup({ status: "idle" }); setRestore({ status: "idle" }); setSettingsView("main"); say("Everything was erased");
+    setDataRaw(INITIAL); setStack([]); setTab("fleet"); setBackup({ status: "idle" }); setRestore({ status: "idle" }); setSettingsView("main"); say("Everything was erased");
   };
   const recheck = async () => { await requestPersistence(); setStorageInfo(await selfTest()); };
 
@@ -398,6 +428,50 @@ export default function App() {
     if (!error) say("Signed in");
   };
   const signOut = async () => { const sb = getSupabase(); if (sb) await sb.auth.signOut(); say("Signed out"); };
+
+  /* ---- cloud sync ---- */
+  const orgId = (session && session.user && session.user.app_metadata && session.user.app_metadata.org_id) || null;
+  const syncNow = useCallback(async (reason) => {
+    const sb = getSupabase(); if (!sb || !session || syncingRef.current || !navigator.onLine) return;
+    if (!orgId) { setSyncState((st) => ({ ...st, running: false, error: "This account has no org_id yet. Finish the staff-account step (SQL in step 4), then sign out and back in." })); return; }
+    syncingRef.current = true; setSyncState({ running: true, progress: "Starting…", error: null, last: null });
+    try {
+      const summary = await runSync({ sb, orgId, getData: () => dataRef.current, setRaw: setDataRaw, photos, onProgress: (p) => setSyncState((st) => ({ ...st, progress: p })) });
+      setSyncState({ running: false, progress: "", error: null, last: summary });
+      if (reason === "manual") say(summary.pushed + summary.uploaded + summary.pulled ? `Synced: ${summary.pushed} records up, ${summary.uploaded} photos up, ${summary.pulled} records down` : "Everything is already in sync");
+    } catch (e) {
+      const msg = (e && e.message) || "Sync failed";
+      setSyncState({ running: false, progress: "", error: msg, last: null });
+      setDataRaw((d) => ({ ...d, sync: { ...(d.sync || EMPTY_SYNC), lastError: msg } }));
+      if (reason === "manual") say(msg);
+    } finally { syncingRef.current = false; }
+  }, [session, orgId, photos, say]);
+  const pendingRecords = dirtyCount(data); const pendingPhotoCount = pendingPhotos(data).length;
+  useEffect(() => { if (loaded && session) syncNow("signin"); }, [loaded, session, syncNow]);
+  useEffect(() => {
+    if (!loaded || !session || pendingRecords + pendingPhotoCount === 0) return;
+    const h = setTimeout(() => syncNow("change"), 4000);
+    return () => clearTimeout(h);
+  }, [loaded, session, pendingRecords, pendingPhotoCount, data.sync, data.photoMeta, syncNow]);
+  useEffect(() => {
+    if (!session) return;
+    const onOnline = () => syncNow("online"); window.addEventListener("online", onOnline);
+    const iv = setInterval(() => syncNow("interval"), 5 * 60 * 1000);
+    return () => { window.removeEventListener("online", onOnline); clearInterval(iv); };
+  }, [session, syncNow]);
+
+  /* ---- Fleet Ops link ---- */
+  const previewFleetImport = async () => {
+    const sb = getSupabase(); if (!sb) return;
+    setFleetImport({ status: "loading" });
+    try { const rows = await fetchFleetRows(sb); setFleetImport({ status: "ready", plan: planFleetImport(rows, dataRef.current.units.filter((u) => !u.demo)) }); }
+    catch (e) { setFleetImport({ status: "error", error: e.message || "Couldn't read the fleet table." }); }
+  };
+  const applyFleet = () => {
+    const plan = fleetImport && fleetImport.plan; if (!plan) return;
+    setData((d) => applyFleetImport(d, plan));
+    setFleetImport(null); say(`${plan.create.length} trailers added, ${plan.link.length} linked`);
+  };
 
   /* ---- render ---- */
   if (!loaded) {
@@ -413,10 +487,15 @@ export default function App() {
   const nudge = photoTotal >= 12 && (!data.settings.lastBackupAt || (Date.now() - data.settings.lastBackupAt > 7 * 86400000 && sinceBackup > 0))
     ? { photos: data.settings.lastBackupAt ? sinceBackup : photoTotal, lastBackupAt: data.settings.lastBackupAt } : null;
 
+  const cloudLine = !cloudConfigured ? null : !session ? { text: "Not signed in: photos stay on this phone only", tone: "warn" }
+    : syncState.running ? { text: syncState.progress || "Syncing…", tone: "info" }
+    : syncState.error ? { text: `Sync problem: ${syncState.error}`, tone: "warn" }
+    : pendingRecords + pendingPhotoCount > 0 ? { text: `${pendingRecords} record${pendingRecords === 1 ? "" : "s"}, ${pendingPhotoCount} photo${pendingPhotoCount === 1 ? "" : "s"} waiting to sync`, tone: "info" }
+    : data.sync.lastSyncAt ? { text: `Synced ${fmtDT(data.sync.lastSyncAt)}`, tone: "ok" } : null;
   let content = null;
   if (tab === "fleet") {
     if (!top) content = <FleetScreen data={data} photos={photos} onOpenUnit={(id) => push({ name: "unit", unitId: id })} onAddUnit={() => setUnitForm({ unitId: null })} onLoadDemo={loadDemo}
-      nudge={nudge} onBackup={() => { setTab("settings"); setSettingsView("main"); }} />;
+      nudge={nudge} onBackup={() => { setTab("settings"); setSettingsView("main"); }} cloudLine={cloudLine} />;
     else if (top.name === "unit") {
       const u = unitOf(top.unitId);
       content = u ? <UnitScreen unit={u} data={data} photos={photos} onBack={pop} onStartDeparture={() => startDeparture(u.id)} onStartReturn={() => startReturn(u.id)}
@@ -442,6 +521,8 @@ export default function App() {
     content = <SettingsScreen settings={data.settings} setSettings={setSettings} storageInfo={storageInfo} onRecheck={recheck} onLoadDemo={loadDemo} onReset={resetAll}
       stats={{ units: data.units.length, inspections: data.inspections.length, photos: photoTotal, registry: data.registry.length }}
       account={{ configured: cloudConfigured, session, onSignIn: signIn, onSignOut: signOut, busy: auth.busy, error: auth.error }}
+      sync={{ enabled: cloudConfigured && !!session, state: syncState, lastSyncAt: data.sync.lastSyncAt, pendingRecords, pendingPhotos: pendingPhotoCount, onSyncNow: () => syncNow("manual") }}
+      fleetOps={{ enabled: cloudConfigured && !!session, linked: data.units.filter((u) => u.crmUnitId).length, importState: fleetImport, onPreview: previewFleetImport, onApply: applyFleet, onCancel: () => setFleetImport(null) }}
       backupProps={{ units: data.units, photoTotal, lastBackupAt: data.settings.lastBackupAt, lastBackupPhotoCount: data.settings.lastBackupPhotoCount, backup, onBuild: buildBackupFile, onShare: shareBackup, onDownload: downloadBackup, onDiscard: discardBackup, restore, onRestoreFile: restoreFromFile, onOpenArchive: () => setSettingsView("archive") }} />;
   }
 

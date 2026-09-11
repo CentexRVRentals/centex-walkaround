@@ -1,11 +1,64 @@
 import { useState } from "react";
-import { RefreshCw, ShieldCheck, Sparkles, Trash2 } from "lucide-react";
+import { Cloud, Link2, Loader2, RefreshCw, ShieldCheck, Sparkles, Trash2 } from "lucide-react";
 import { APP_VERSION } from "../app/version.js";
 import { BackupCard } from "./BackupCard.jsx";
 import { C, FONT_DISPLAY, inputStyle, QUALITY } from "../ui/theme.js";
 import { Btn, Toggle } from "../ui/atoms.jsx";
-import { fmtBytes } from "../lib/format.js";
+import { fmtBytes, fmtDT } from "../lib/format.js";
 
+
+
+function CloudSyncCard({ state, lastSyncAt, pendingRecords, pendingPhotos, onSyncNow }) {
+  const pending = pendingRecords + pendingPhotos;
+  const tone = state.running ? C.blue : state.error ? C.orange : pending ? C.amber : C.green;
+  return (
+    <div style={{ margin: "8px 16px 0", background: C.surface, border: `1px solid ${C.line}`, borderRadius: 12, padding: 14 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <Cloud size={18} color={tone} />
+        <div style={{ fontWeight: 700, fontSize: 16, flex: 1 }}>Cloud sync</div>
+        <Btn variant="secondary" size="sm" icon={state.running ? Loader2 : RefreshCw} onClick={onSyncNow} disabled={state.running}>{state.running ? "Syncing…" : "Sync now"}</Btn>
+      </div>
+      <div style={{ fontSize: 14, color: C.ink2, marginTop: 8, lineHeight: 1.45 }}>
+        {state.running ? state.progress || "Working…"
+          : state.error ? <span style={{ color: C.orange }}>{state.error}</span>
+          : pending ? `${pendingRecords} record${pendingRecords === 1 ? "" : "s"} and ${pendingPhotos} photo${pendingPhotos === 1 ? "" : "s"} waiting. They go up automatically a few seconds after each change while you're online.`
+          : lastSyncAt ? `Everything on this phone is in the cloud. Last sync ${fmtDT(lastSyncAt)}.` : "Signed in. The first sync runs automatically."}
+      </div>
+      <div style={{ fontSize: 13, color: C.ink3, marginTop: 6, lineHeight: 1.45 }}>Records and photos are shared with every signed-in phone in your organization. Photos from other phones download the first time you open them.</div>
+    </div>
+  );
+}
+
+function FleetOpsCard({ linked, importState, onPreview, onApply, onCancel }) {
+  const plan = importState && importState.plan;
+  return (
+    <div style={{ margin: "8px 16px 0", background: C.surface, border: `1px solid ${C.line}`, borderRadius: 12, padding: 14 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <Link2 size={18} color={C.blue} />
+        <div style={{ fontWeight: 700, fontSize: 16, flex: 1 }}>Fleet Ops link</div>
+        <Btn variant="secondary" size="sm" onClick={onPreview} disabled={importState && importState.status === "loading"}>{importState && importState.status === "loading" ? "Reading…" : "Import trailers"}</Btn>
+      </div>
+      <div style={{ fontSize: 14, color: C.ink2, marginTop: 8, lineHeight: 1.45 }}>
+        {linked ? `${linked} trailer${linked === 1 ? "" : "s"} linked to Fleet Ops campers. ` : ""}Pulls the fleet list from the CRM, links trailers that already exist here by name, and adds the rest.
+      </div>
+      {importState && importState.status === "error" ? <div style={{ color: C.red, fontSize: 14, marginTop: 8 }}>{importState.error}</div> : null}
+      {plan ? (
+        <div style={{ marginTop: 10, padding: 12, background: C.paper, borderRadius: 10 }}>
+          <div style={{ fontWeight: 700 }}>{plan.total} campers found</div>
+          <div style={{ fontSize: 14, color: C.ink2, marginTop: 4, lineHeight: 1.5 }}>
+            {plan.create.length} new trailer{plan.create.length === 1 ? "" : "s"} to add, {plan.link.length} existing to link by name, {plan.linked} already linked{plan.skipped ? `, ${plan.skipped} skipped (no name)` : ""}.
+            {plan.fields.length ? ` Fields found: ${plan.fields.join(", ")}.` : " Only names matched; year, make, model and plate can be filled in per unit."}
+          </div>
+          {plan.create.length ? <div style={{ fontSize: 13, color: C.ink3, marginTop: 6 }}>{plan.create.slice(0, 8).map((c) => c.name).join(", ")}{plan.create.length > 8 ? `, +${plan.create.length - 8} more` : ""}</div> : null}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: 8, marginTop: 10 }}>
+            <Btn variant="secondary" onClick={onCancel}>Cancel</Btn>
+            <Btn onClick={onApply} disabled={!plan.create.length && !plan.link.length}>{plan.create.length + plan.link.length ? "Import and link" : "Nothing to import"}</Btn>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
 
 function AccountCard({ configured, session, onSignIn, onSignOut, busy, error }) {
   const [email, setEmail] = useState(""); const [pw, setPw] = useState("");
@@ -41,7 +94,7 @@ function AccountCard({ configured, session, onSignIn, onSignOut, busy, error }) 
   );
 }
 
-export function SettingsScreen({ settings, setSettings, storageInfo, onRecheck, onLoadDemo, onReset, stats, backupProps, account }) {
+export function SettingsScreen({ settings, setSettings, storageInfo, onRecheck, onLoadDemo, onReset, stats, backupProps, account, sync, fleetOps }) {
   const [confirmReset, setConfirmReset] = useState(false);
   return (
     <div style={{ paddingBottom: 24 }}>
@@ -50,6 +103,8 @@ export function SettingsScreen({ settings, setSettings, storageInfo, onRecheck, 
         <div style={{ fontSize: 13.5, color: C.ink3, marginTop: 6 }}>Walkaround v{APP_VERSION}</div>
       </div>
       <AccountCard {...account} />
+      {sync && sync.enabled ? <CloudSyncCard {...sync} /> : null}
+      {fleetOps && fleetOps.enabled ? <FleetOpsCard {...fleetOps} /> : null}
       <div style={{ margin: "8px 16px 0", background: C.surface, border: `1px solid ${C.line}`, borderRadius: 12, padding: 14 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <span style={{ width: 10, height: 10, borderRadius: "50%", background: storageInfo.ok ? C.green : C.amber }} />
@@ -83,6 +138,7 @@ export function SettingsScreen({ settings, setSettings, storageInfo, onRecheck, 
       </div>
       <div style={{ margin: "12px 16px 0", display: "grid", gap: 8 }}>
         <Btn variant="secondary" icon={Sparkles} onClick={onLoadDemo}>Load sample fleet and a return to compare</Btn>
+        <div style={{ fontSize: 13, color: C.ink3, marginTop: 8, lineHeight: 1.45 }}>Sample trailers stay on this device and never sync. Reset erases this device only; anything already synced comes back from the cloud on the next sync.</div>
         {confirmReset
           ? <Btn variant="danger" icon={Trash2} onClick={() => { setConfirmReset(false); onReset(); }}>Yes, erase everything on this device</Btn>
           : <Btn variant="ghost" icon={Trash2} onClick={() => setConfirmReset(true)} style={{ color: C.red }}>Reset all data</Btn>}

@@ -10,7 +10,7 @@ describe("on-device database", () => {
   it("persistDiff writes only changed entities and removes deleted ones", async () => {
     const u1 = { id: "u1", name: "A" }, u2 = { id: "u2", name: "B" };
     const s1 = snap({ units: [u1, u2] });
-    expect(await persistDiff(null, s1)).toBe(4); // 2 units + settings + seq
+    expect(await persistDiff(null, s1)).toBe(6); // 2 units + settings + seq + sync + photoMeta
     const s2 = { ...s1, units: [{ ...u1, name: "A2" }, u2] };
     expect(await persistDiff(s1, s2)).toBe(1);
     const s3 = { ...s2, units: [s2.units[0]], seq: 3 };

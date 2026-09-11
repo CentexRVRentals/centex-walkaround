@@ -1,0 +1,4 @@
+update auth.users
+set raw_app_meta_data = coalesce(raw_app_meta_data,'{}'::jsonb)
+  || '{"org_id":"centex","wa_role":"owner"}'::jsonb
+where email = 'you@centexrvrentals.com';

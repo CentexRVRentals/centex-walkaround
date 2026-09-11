@@ -3,7 +3,7 @@
 import { putPhotoVerified, getPhoto, putThumb, getThumb, deletePhoto } from "./db.js";
 import { dataUrlToBlob, blobToDataUrl, fitToJpeg, makeThumb } from "../lib/images.js";
 
-export function createPhotoStore(onChange) {
+export function createPhotoStore(onChange, { fetchRemote = null } = {}) {
   const urls = new Map(), thumbUrls = new Map(), inflight = new Map(), inflightThumb = new Map();
   const notify = () => { if (onChange) onChange(); };
   const mkUrl = (blob) => URL.createObjectURL(blob);
@@ -13,7 +13,15 @@ export function createPhotoStore(onChange) {
     if (!id) return Promise.resolve(null);
     if (urls.has(id)) return Promise.resolve(urls.get(id));
     if (inflight.has(id)) return inflight.get(id);
-    const p = getPhoto(id).then((rec) => { inflight.delete(id); if (!rec || !rec.blob) return null; const u = mkUrl(rec.blob); urls.set(id, u); notify(); return u; })
+    const p = getPhoto(id)
+      .then(async (rec) => {
+        if ((!rec || !rec.blob) && fetchRemote) {
+          // Not on this device: pull it from the cloud once, then it's local like any other.
+          const blob = await fetchRemote(id).catch(() => null);
+          if (blob) { rec = await putPhotoVerified(id, blob, {}); try { await putThumb(id, await makeThumb(await blobToDataUrl(blob))); } catch (e) {} }
+        }
+        inflight.delete(id); if (!rec || !rec.blob) return null; const u = mkUrl(rec.blob); urls.set(id, u); notify(); return u;
+      })
       .catch(() => { inflight.delete(id); return null; });
     inflight.set(id, p); return p;
   };
@@ -42,11 +50,12 @@ export function createPhotoStore(onChange) {
     notify();
     return { ok: true, bytes: blob.size };
   };
-  const blob = async (id) => { const rec = await getPhoto(id); return rec && rec.blob ? rec.blob : null; };
+  const blob = async (id) => { if (!(await getPhoto(id)) && fetchRemote) await load(id); const rec = await getPhoto(id); return rec && rec.blob ? rec.blob : null; };
   const bytes = async (id) => { const b = await blob(id); return b ? new Uint8Array(await b.arrayBuffer()) : null; };
   const has = async (id) => !!(await getPhoto(id));
+  const hasLocal = has;
   const remove = async (id) => { await deletePhoto(id); revoke(id); notify(); };
   const revokeAll = () => { for (const id of [...urls.keys(), ...thumbUrls.keys()]) revoke(id); };
 
-  return { url: (id) => urls.get(id) || null, thumbUrl: (id) => thumbUrls.get(id) || null, load, loadThumb, put, blob, bytes, has, remove, revokeAll };
+  return { url: (id) => urls.get(id) || null, thumbUrl: (id) => thumbUrls.get(id) || null, load, loadThumb, put, blob, bytes, has, hasLocal, remove, revokeAll };
 }

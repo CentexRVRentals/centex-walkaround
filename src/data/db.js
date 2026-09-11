@@ -24,10 +24,10 @@ export function openDb() {
 
 export async function loadSnapshot() {
   const db = await openDb();
-  const [units, inspections, registry, layouts, settings, seq] = await Promise.all([
-    db.getAll("units"), db.getAll("inspections"), db.getAll("registry"), db.getAll("layouts"), db.get("meta", "settings"), db.get("meta", "seq"),
+  const [units, inspections, registry, layouts, settings, seq, sync, photoMeta] = await Promise.all([
+    db.getAll("units"), db.getAll("inspections"), db.getAll("registry"), db.getAll("layouts"), db.get("meta", "settings"), db.get("meta", "seq"), db.get("meta", "sync"), db.get("meta", "photoMeta"),
   ]);
-  return { units, inspections, registry, layouts, settings: settings || null, seq: seq || 0 };
+  return { units, inspections, registry, layouts, settings: settings || null, seq: seq || 0, sync: sync || null, photoMeta: photoMeta || null };
 }
 
 // Write only what changed between two immutable snapshots. Entities are compared
@@ -44,6 +44,8 @@ export async function persistDiff(prev, next) {
   }
   if (!prev || prev.settings !== next.settings) ops.push(tx.objectStore("meta").put(next.settings, "settings"));
   if (!prev || prev.seq !== next.seq) ops.push(tx.objectStore("meta").put(next.seq || 0, "seq"));
+  if (!prev || prev.sync !== next.sync) ops.push(tx.objectStore("meta").put(next.sync || null, "sync"));
+  if (!prev || prev.photoMeta !== next.photoMeta) ops.push(tx.objectStore("meta").put(next.photoMeta || {}, "photoMeta"));
   await Promise.all([...ops, tx.done]);
   return ops.length;
 }

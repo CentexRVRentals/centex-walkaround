@@ -1,10 +1,10 @@
-import { Caravan, ChevronRight, Download, Plus, Sparkles } from "lucide-react";
+import { Caravan, ChevronRight, Cloud, Download, Plus, Sparkles } from "lucide-react";
 import { C, FONT_DISPLAY } from "../ui/theme.js";
 import { Btn, Chip, Empty, Row, Section } from "../ui/atoms.jsx";
 import { PhotoImg } from "../ui/PhotoImg.jsx";
 import { UNIT_STATUS, ymm, inspTitle, unitInspections, openDamages } from "../domain/inspections.js";
 
-export function FleetScreen({ data, photos, onOpenUnit, onAddUnit, onLoadDemo, nudge, onBackup }) {
+export function FleetScreen({ data, photos, onOpenUnit, onAddUnit, onLoadDemo, nudge, onBackup, cloudLine }) {
   const heroPhoto = (u) => {
     const deps = unitInspections(data, u.id).filter((i) => i.type === "departure");
     for (const d of deps) { const z = d.zones.ps_side || d.zones.front || d.zones.ds_side; if (z && z.photoId) return z.photoId; }
@@ -16,6 +16,7 @@ export function FleetScreen({ data, photos, onOpenUnit, onAddUnit, onLoadDemo, n
         <div style={{ fontSize: 14, color: C.ink2, fontWeight: 600 }}>Centex RV Rentals</div>
         <h1 style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 32, lineHeight: 1, margin: "4px 0 0", color: C.ink }}>Walkaround</h1>
         <div style={{ fontSize: 15, color: C.ink2, marginTop: 8, lineHeight: 1.4 }}>Photo every zone at departure, shoot the same angles at return, and let Claude flag what changed. You make the call on every finding.</div>
+        {cloudLine ? <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 10, fontSize: 13, fontWeight: 600, color: cloudLine.tone === "warn" ? C.orange : cloudLine.tone === "ok" ? C.green : C.ink3 }}><Cloud size={15} />{cloudLine.text}</div> : null}
       </div>
       {nudge ? (
         <div style={{ margin: "12px 16px 0" }}>

@@ -1,4 +1,5 @@
--- Centex Walkaround — cloud schema (Phase 2: sync + multi-device).
+-- Centex Walkaround — cloud schema. Run this first, then schema-002-sync.sql.
+-- Safe to re-run: tables use IF NOT EXISTS and every policy is dropped before it is created.
 -- Tables are prefixed wa_ so this can live in the same Supabase project as Fleet Ops.
 -- Every row carries org_id; RLS checks the server-set JWT claim app_metadata.org_id,
 -- never user_metadata (which users can edit).
@@ -127,22 +128,33 @@ do $$ declare t text; begin
   end loop;
 end $$;
 
+drop policy if exists wa_layouts_org on wa_layouts;
 create policy wa_layouts_org on wa_layouts for all using (org_id = wa_org_id()) with check (org_id = wa_org_id());
+drop policy if exists wa_units_org on wa_units;
 create policy wa_units_org on wa_units for all using (org_id = wa_org_id()) with check (org_id = wa_org_id());
+drop policy if exists wa_inspections_org on wa_inspections;
 create policy wa_inspections_org on wa_inspections for all using (org_id = wa_org_id()) with check (org_id = wa_org_id());
+drop policy if exists wa_photos_org on wa_photos;
 create policy wa_photos_org on wa_photos for all using (org_id = wa_org_id()) with check (org_id = wa_org_id());
+drop policy if exists wa_zones_org on wa_inspection_zones;
 create policy wa_zones_org on wa_inspection_zones for all
   using (exists (select 1 from wa_inspections i where i.id = inspection_id and i.org_id = wa_org_id()))
   with check (exists (select 1 from wa_inspections i where i.id = inspection_id and i.org_id = wa_org_id()));
+drop policy if exists wa_findings_org on wa_findings;
 create policy wa_findings_org on wa_findings for all using (org_id = wa_org_id()) with check (org_id = wa_org_id());
+drop policy if exists wa_registry_read on wa_registry;
 create policy wa_registry_read on wa_registry for select using (org_id = wa_org_id());
+drop policy if exists wa_registry_owner_write on wa_registry;
 create policy wa_registry_owner_write on wa_registry for insert with check (org_id = wa_org_id() and wa_is_owner());
+drop policy if exists wa_registry_owner_update on wa_registry;
 create policy wa_registry_owner_update on wa_registry for update using (org_id = wa_org_id() and wa_is_owner());
+drop policy if exists wa_registry_owner_delete on wa_registry;
 create policy wa_registry_owner_delete on wa_registry for delete using (org_id = wa_org_id() and wa_is_owner());
 
 -- Storage: one private bucket; paths start with the org id so policies can check the first folder.
 insert into storage.buckets (id, name, public) values ('walkaround-photos', 'walkaround-photos', false)
   on conflict (id) do nothing;
+drop policy if exists wa_photos_bucket_rw on storage.objects;
 create policy wa_photos_bucket_rw on storage.objects for all
   using (bucket_id = 'walkaround-photos' and (storage.foldername(name))[1] = wa_org_id())
   with check (bucket_id = 'walkaround-photos' and (storage.foldername(name))[1] = wa_org_id());
