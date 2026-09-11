@@ -1,0 +1,10 @@
+# Supabase CLI project config. `project_id` is only a local label; the remote project is
+# chosen with `npx supabase link --project-ref <ref>`. Both functions are invoked by
+# signed-in staff, so the gateway verifies the Supabase JWT before our code runs.
+project_id = "centex-walkaround"
+
+[functions.compare-zone]
+verify_jwt = true
+
+[functions.draft-notice]
+verify_jwt = true

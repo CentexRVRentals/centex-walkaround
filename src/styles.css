@@ -1,0 +1,18 @@
+/* Global styles. Component styling is inline; this covers resets, range inputs, motion. */
+html, body, #root { margin: 0; min-height: 100%; background: #EEF2F5; }
+body { font-family: 'Barlow', 'Avenir Next', 'Segoe UI', system-ui, sans-serif; color: #16232E; -webkit-font-smoothing: antialiased; }
+*, *::before, *::after { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  button { font-family: inherit; }
+  button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible, [tabindex]:focus-visible { outline: 3px solid #2148C0; outline-offset: 2px; }
+  input[type=range] { -webkit-appearance: none; appearance: none; width: 100%; height: 28px; background: transparent; }
+  input[type=range]::-webkit-slider-runnable-track { height: 4px; border-radius: 2px; background: rgba(255,255,255,0.35); }
+  input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 26px; height: 26px; margin-top: -11px; border-radius: 50%; background: #fff; border: 2px solid #16232E; }
+  input[type=range]::-moz-range-track { height: 4px; border-radius: 2px; background: rgba(255,255,255,0.35); }
+  input[type=range]::-moz-range-thumb { width: 26px; height: 26px; border-radius: 50%; background: #fff; border: 2px solid #16232E; }
+  .light input[type=range]::-webkit-slider-runnable-track { background: #D5DEE6; }
+  .light input[type=range]::-moz-range-track { background: #D5DEE6; }
+  .spin { animation: wa-spin 1s linear infinite; }
+  @keyframes wa-spin { to { transform: rotate(360deg); } }
+  @keyframes wa-flash { from { opacity: 1; } to { opacity: 0; } }
+  .flash { animation: wa-flash 260ms ease-out forwards; }
+  @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
