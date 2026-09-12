@@ -62,7 +62,7 @@ export const pendingPhotos = (data) => Object.entries(data.photoMeta || {}).filt
 
 /* ------------------------------- mapping ------------------------------ */
 export const toRow = {
-  layouts: (l) => ({ id: l.id, name: l.name, interior: l.interior || [], created_at: iso(l.createdAt || l.updatedAt || Date.now()), updated_at: iso(l.updatedAt || Date.now()) }),
+  layouts: (l) => ({ id: l.id, name: l.name, interior: l.interior || [], exterior: Array.isArray(l.exterior) ? l.exterior : null, created_at: iso(l.createdAt || l.updatedAt || Date.now()), updated_at: iso(l.updatedAt || Date.now()) }),
   units: (u) => ({ id: u.id, name: u.name, year: u.year || null, make: u.make || null, model: u.model || null, length: u.length || null, plate: u.plate || null,
     status: u.status || "available", layout_id: u.layoutId && u.layoutId !== "default" ? u.layoutId : null, crm_unit_id: u.crmUnitId || null, crm_name: u.crmName || null,
     created_at: iso(u.createdAt || u.updatedAt || Date.now()), updated_at: iso(u.updatedAt || Date.now()) }),
@@ -74,7 +74,7 @@ export const toRow = {
     billed: !!r.billed, found_at: iso(r.foundAt), repaired_at: iso(r.repairedAt), updated_at: iso(r.updatedAt || Date.now()) }),
 };
 export const fromRow = {
-  layouts: (r) => ({ id: r.id, name: r.name, interior: Array.isArray(r.interior) ? r.interior : [], createdAt: ms(r.created_at), updatedAt: ms(r.updated_at) }),
+  layouts: (r) => ({ id: r.id, name: r.name, interior: Array.isArray(r.interior) ? r.interior : [], ...(Array.isArray(r.exterior) ? { exterior: r.exterior } : {}), createdAt: ms(r.created_at), updatedAt: ms(r.updated_at) }),
   units: (r) => ({ id: r.id, name: r.name, year: str(r.year), make: str(r.make), model: str(r.model), length: str(r.length), plate: str(r.plate), status: r.status || "available",
     layoutId: r.layout_id || "default", crmUnitId: r.crm_unit_id || null, crmName: r.crm_name || null, createdAt: ms(r.created_at), updatedAt: ms(r.updated_at) }),
   inspections: (r) => ({ id: r.id, unitId: r.unit_id, type: r.type, status: r.status, baselineId: r.baseline_id || null, returnId: r.return_id || null, renter: str(r.renter), booking: str(r.booking),

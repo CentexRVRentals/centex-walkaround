@@ -1,6 +1,6 @@
 # HANDOVER — Centex Walkaround
 
-Version: v1.1.0 · Repo: `C:\dev\centex-walkaround` · Stack: Vite + React 18 (PWA) · IndexedDB (idb) · Supabase Edge Functions (Deno) · Netlify
+Version: v1.2.0 · Repo: `C:\dev\centex-walkaround` · Stack: Vite + React 18 (PWA) · IndexedDB (idb) · Supabase Edge Functions (Deno) · Netlify
 
 ## 1. What this is
 
@@ -24,6 +24,10 @@ The production codebase for the Walkaround prototype piloted as a Claude artifac
 12. **Fleet Ops link** reads the CRM's `fleet` table (`select *`) and matches by `name`; other columns are guessed from common spellings (`FLEET_FIELDS`). Linked units carry `crmUnitId` (fleet `id` if present, else the name) and `crmName`.
 13. Sync needs `app_metadata.org_id` on the user; without it the Settings card explains what to do instead of failing silently.
 
+### v1.2.0 — editable exterior
+14. **Layouts own their exterior list too.** A saved layout carries `exterior: [{id,name,tip,group,x,y}]` (group is one of the two exterior sections); `null`/absent means the built-in shots, so every existing layout and inspection snapshot keeps working. `zonesFromLayout` is the single source of a layout's zone order. Duplicating Standard copies the built-in shots with their ids, so registry history keeps matching by zone.
+15. Exterior shots clamp to the whole map (`SHOT_BOUNDS`), rooms to the body (`INTERIOR_BOUNDS`). A layout must keep at least one zone; caps are 16 shots and 12 rooms.
+
 ## 3. Conventions
 
 - `npm run preship` must pass before any ship: esbuild syntax → ESLint (no-undef, react/jsx-no-undef, hooks) → Vitest → Vite build.
@@ -43,10 +47,11 @@ The production codebase for the Walkaround prototype piloted as a Claude artifac
 - §4.6 Anything applied from the server must use `setDataRaw`, never `setData`: stamping server rows would mark them dirty and echo them back forever.
 - §4.7 Push before pull would send a colliding registry code before the pull could renumber it; the cycle is pull → push → pull.
 - §4.8 `persistDiff` op counts change whenever a meta key is added (settings, seq, sync, photoMeta); the db test pins the count on purpose.
+- §4.9 Any clamp applied on every zone edit (including renames) must contain the built-in coordinates, or renaming a standard shot silently moves it (`SHOT_BOUNDS.y0` sits above the front hitch circle at y=7).
 
 ## 5. Tests
 
-`tests/*.test.js` cover zones/layouts, inspection rules, findings/finalize, zip, backups, the IndexedDB layer, and sync (`tests/sync.test.js`: an in-memory Supabase double with the trigger semantics drives two simulated phones through round-trip, LWW conflict, delete propagation, code renumbering, photo upload/download, and the Fleet Ops import planner). `tests/app.e2e.test.jsx` drives the real App in jsdom with fake-indexeddb: demo → AI comparison (mocked transport, real normalization) → rulings → finalize → report → registry → capture fallback with a file → sign-off → design tab → backup → reset → restore, and asserts on-device persistence between steps. 37 tests.
+`tests/*.test.js` cover zones/layouts, inspection rules, findings/finalize, zip, backups, the IndexedDB layer, and sync (`tests/sync.test.js`: an in-memory Supabase double with the trigger semantics drives two simulated phones through round-trip, LWW conflict, delete propagation, code renumbering, photo upload/download, and the Fleet Ops import planner). `tests/app.e2e.test.jsx` drives the real App in jsdom with fake-indexeddb: demo → AI comparison (mocked transport, real normalization) → rulings → finalize → report → registry → capture fallback with a file → sign-off → design tab → backup → reset → restore, and asserts on-device persistence between steps. 38 tests.
 
 ## 9. Known gaps / next
 
@@ -63,3 +68,4 @@ The production codebase for the Walkaround prototype piloted as a Claude artifac
 | --- | --- | --- |
 | 1.0.0 | 2026-09-11 | First codebase build from the prototype: PWA, IndexedDB, Edge Functions, schema, 25 tests |
 | 1.1.0 | 2026-09-11 | Phase 2: cloud sync (pull-first LWW, soft deletes, photo upload/download), Fleet Ops import, `schema-002-sync.sql`, 37 tests |
+| 1.2.0 | 2026-09-11 | Designer edits exterior shots too (move/add/rename/section, Room and Shot tools), `schema-003-exterior.sql`, 38 tests |

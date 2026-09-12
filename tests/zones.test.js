@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { ZONES, EXTERIOR_ZONES, DEFAULT_INTERIOR, zonesFromInterior, zoneLabel, clampZone, layoutSnapshot, DEFAULT_LAYOUT, INTERIOR_BOUNDS, zonesForInsp, zonesForUnit } from "../src/domain/zones.js";
+import { ZONES, EXTERIOR_ZONES, DEFAULT_INTERIOR, zonesFromInterior, zonesFromLayout, zoneLabel, clampZone, clampShot, layoutSnapshot, freshLayout, exteriorAsStored, DEFAULT_LAYOUT, INTERIOR_BOUNDS, SHOT_BOUNDS, zonesForInsp, zonesForUnit } from "../src/domain/zones.js";
 
 describe("zones and layouts", () => {
   it("standard layout is the fixed exterior plus five rooms", () => {
@@ -43,5 +43,22 @@ describe("zones and layouts", () => {
     expect(zonesForInsp(data, { layout: null }).length).toBe(ZONES.length);
     expect(zonesForInsp(data, data.inspections[0]).some((z) => z.id === "int_snap")).toBe(true);
     expect(layoutSnapshot(DEFAULT_LAYOUT).interior.length).toBe(5);
+  });
+
+  it("layouts may replace the exterior walkaround; snapshots and lookups follow", () => {
+    const layout = { id: "l1", name: "Toy hauler", interior: [], exterior: [{ id: "front", name: "Front", group: "Exterior walkaround", x: 50, y: 12 }, { id: "ext_ramp", name: "Rear ramp", group: "Wheels & roof", x: 50, y: 96 }] };
+    const zs = zonesFromLayout(layout);
+    expect(zs.map((z) => z.id)).toEqual(["front", "ext_ramp"]);
+    expect(zs[1]).toMatchObject({ group: "Wheels & roof", pos: { x: 50, y: 96 } }); expect(zs[1].tip.length).toBeGreaterThan(5);
+    expect(zonesFromLayout({ interior: DEFAULT_INTERIOR }).length).toBe(16);
+    const snap = layoutSnapshot(layout); layout.exterior.push({ id: "x", name: "X", x: 1, y: 1 });
+    expect(snap.exterior.length).toBe(2); expect(layoutSnapshot(DEFAULT_LAYOUT).exterior).toBeUndefined();
+    const data = { units: [{ id: "u1", layoutId: "l1" }], layouts: [layout], inspections: [] };
+    expect(zoneLabel(data, "u1", "ext_ramp")).toBe("Rear ramp");
+    expect(zonesForInsp(data, { layout: snap }).map((z) => z.id)).toEqual(["front", "ext_ramp"]);
+    const fresh = freshLayout(DEFAULT_LAYOUT, "copy");
+    expect(fresh.exterior.map((z) => z.id)).toEqual(EXTERIOR_ZONES.map((z) => z.id)); expect(fresh.exterior[0]).toMatchObject({ x: EXTERIOR_ZONES[0].pos.x, y: EXTERIOR_ZONES[0].pos.y, group: "Exterior walkaround" });
+    expect(exteriorAsStored(EXTERIOR_ZONES)[0].pos).toBeUndefined();
+    const shot = clampShot({ x: -50, y: 500 }); expect(shot.x).toBe(SHOT_BOUNDS.x0); expect(shot.y).toBe(SHOT_BOUNDS.y1);
   });
 });

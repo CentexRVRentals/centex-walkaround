@@ -7,7 +7,7 @@ import { UNIT_STATUS, ymm, inspTitle, unitInspections, openDamages } from "../do
 export function FleetScreen({ data, photos, onOpenUnit, onAddUnit, onLoadDemo, nudge, onBackup, cloudLine }) {
   const heroPhoto = (u) => {
     const deps = unitInspections(data, u.id).filter((i) => i.type === "departure");
-    for (const d of deps) { const z = d.zones.ps_side || d.zones.front || d.zones.ds_side; if (z && z.photoId) return z.photoId; }
+    for (const d of deps) { const z = d.zones.ps_side || d.zones.front || d.zones.ds_side || Object.values(d.zones).find((x) => x && x.photoId); if (z && z.photoId) return z.photoId; }
     return null;
   };
   return (

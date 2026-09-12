@@ -109,9 +109,16 @@ describe("Walkaround end to end", () => {
     await act(async () => { $("g[aria-label]").find((g) => g.getAttribute("aria-label") === "Bedroom").dispatchEvent(new Event("pointerdown", { bubbles: true })); });
     await waitFor(() => html().includes("Shot instruction for staff"), "inspector");
     await setValue($("input[placeholder='Bunk room']")[0], "Bunk room");
-    await click(byText("Add"), "add tool");
+    await click(byText("Room"), "room tool");
     await act(async () => { $("svg rect[width='48']")[0].dispatchEvent(new Event("pointerdown", { bubbles: true })); });
     await waitFor(() => $("g[aria-label]").some((g) => g.getAttribute("aria-label") === "New room"), "room added");
+    // exterior shots are editable too: select the fixed Rear circle, rename it, then add a new shot
+    await act(async () => { $("g[aria-label]").find((g) => g.getAttribute("aria-label") === "Rear").dispatchEvent(new Event("pointerdown", { bubbles: true })); });
+    await waitFor(() => html().includes("Exterior shot") && $("select[aria-label='Shot section']").length === 1, "shot inspector");
+    await setValue($("input[placeholder='Rear ramp']")[0], "Rear ramp");
+    await click(byText("Shot"), "shot tool");
+    await act(async () => { $("svg rect[width='48']")[0].dispatchEvent(new Event("pointerdown", { bubbles: true })); });
+    await waitFor(() => $("g[aria-label]").some((g) => g.getAttribute("aria-label") === "New shot") && $("g[aria-label]").some((g) => g.getAttribute("aria-label") === "Rear ramp"), "shot added");
     await click(byText("Save layout"), "save layout");
     await waitFor(() => html().includes("Trailers using this layout"), "saved");
     await click(byText("Trailer 5", "div[role=button]"), "assign");
@@ -120,14 +127,14 @@ describe("Walkaround end to end", () => {
     // new unit picks the layout; its inspection uses the rooms (11 exterior + 6)
     await click(byText("Fleet", "nav button"), "fleet");
     await click(byText("Add unit"), "add unit");
-    await waitFor(() => html().includes("Interior layout"), "unit form");
+    await waitFor(() => html().includes("Sets which zones staff photograph"), "unit form");
     await setValue($("input[placeholder='Trailer 3']")[0], "Trailer 9");
     const laySel = $("select").find((sl) => Array.from(sl.options).some((o) => /Bunkhouse 26/.test(o.textContent)));
     await setValue(laySel, Array.from(laySel.options).find((o) => /Bunkhouse 26/.test(o.textContent)).value);
     await click($("button").filter((b) => b.textContent.trim() === "Add unit").pop(), "confirm add");
     await click(byText("Trailer 9", "div[role=button]"), "open trailer 9");
     await click(byText("Start departure inspection"), "start");
-    await waitFor(() => html().includes("0 of 17 zones photographed") && html().includes("Bunk room") && html().includes("New room"), "custom layout inspection");
+    await waitFor(() => html().includes("0 of 18 zones photographed") && html().includes("Bunk room") && html().includes("New room") && html().includes("Rear ramp") && html().includes("New shot"), "custom layout inspection (12 exterior + 6 rooms)");
     await click($("button[aria-label=Back]")[0], "back");
 
     // backup → download → reset → restore (replace)

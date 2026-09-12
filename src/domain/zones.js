@@ -42,26 +42,36 @@ const DEFAULT_INTERIOR = [
     tip: "Shoot down the length of the floor from the entry step. Include the step treads and door threshold." },
 ];
 const INTERIOR_BOUNDS = { x0: 26, x1: 74, y0: 28, y1: 88 };
-const zonesFromInterior = (interior) => [
-  ...EXTERIOR_ZONES,
-  ...(interior || []).map((z) => ({ ...z, group: "Interior", pos: { x: z.x, y: z.y }, w: z.w || 19, h: z.h || 9.2, tip: z.tip || "Stand in the doorway and get the whole room in frame." })),
-];
+const SHOT_BOUNDS = { x0: 6, x1: 94, y0: 6, y1: 98 };
+const GROUPS = ["Exterior walkaround", "Wheels & roof", "Interior"];
+const EXTERIOR_GROUPS = GROUPS.slice(0, 2);
+const shapeInterior = (z) => ({ ...z, group: "Interior", pos: { x: z.x, y: z.y }, w: z.w || 19, h: z.h || 9.2, tip: z.tip || "Stand in the doorway and get the whole room in frame." });
+// Exterior shots stored in a layout use x/y like rooms; the built-in list uses pos. Both render the same.
+const shapeExterior = (z) => ({ ...z, group: EXTERIOR_GROUPS.includes(z.group) ? z.group : "Exterior walkaround", pos: z.pos || { x: z.x, y: z.y }, tip: z.tip || "Frame the whole area at a steady distance." });
+// A layout's zones in list order: exterior groups first (the layout's own list, or the built-in one), then rooms.
+function zonesFromLayout(layout) {
+  const ext = (layout && Array.isArray(layout.exterior) ? layout.exterior : EXTERIOR_ZONES).map(shapeExterior);
+  const int = ((layout && layout.interior) || []).map(shapeInterior);
+  return [...EXTERIOR_GROUPS.flatMap((g) => ext.filter((z) => z.group === g)), ...int];
+}
+const zonesFromInterior = (interior) => zonesFromLayout({ interior });
 const ZONES = zonesFromInterior(DEFAULT_INTERIOR);
 const ZONE_BY_ID = Object.fromEntries(ZONES.map((z) => [z.id, z]));
-const GROUPS = ["Exterior walkaround", "Wheels & roof", "Interior"];
 const DEFAULT_LAYOUT = { id: "default", name: "Standard travel trailer", builtIn: true, interior: DEFAULT_INTERIOR };
 const zoneById = (zones) => Object.fromEntries(zones.map((z) => [z.id, z]));
 const layoutFor = (data, unit) => (unit && unit.layoutId && (data.layouts || []).find((l) => l.id === unit.layoutId)) || DEFAULT_LAYOUT;
-const zonesForUnit = (data, unit) => zonesFromInterior(layoutFor(data, unit).interior);
-const zonesForInsp = (data, insp) => (insp && insp.layout && Array.isArray(insp.layout.interior) ? zonesFromInterior(insp.layout.interior) : ZONES);
-const layoutSnapshot = (layout) => ({ id: layout.id, name: layout.name, interior: (layout.interior || []).map((z) => ({ ...z })) });
+const zonesForUnit = (data, unit) => zonesFromLayout(layoutFor(data, unit));
+const zonesForInsp = (data, insp) => (insp && insp.layout && Array.isArray(insp.layout.interior) ? zonesFromLayout(insp.layout) : ZONES);
+const layoutSnapshot = (layout) => ({ id: layout.id, name: layout.name, interior: (layout.interior || []).map((z) => ({ ...z })),
+  ...(Array.isArray(layout.exterior) ? { exterior: layout.exterior.map((z) => ({ ...z })) } : {}) });
+const layoutZoneLists = (l) => [...(l.interior || []), ...(Array.isArray(l.exterior) ? l.exterior : [])];
 function zoneLabel(data, unitId, zoneId) {
   const unit = data.units.find((u) => u.id === unitId);
   const z = zoneById(zonesForUnit(data, unit))[zoneId];
   if (z) return z.name;
   if (ZONE_BY_ID[zoneId]) return ZONE_BY_ID[zoneId].name;
-  for (const l of data.layouts || []) { const hit = (l.interior || []).find((x) => x.id === zoneId); if (hit) return hit.name; }
-  for (const i of data.inspections) { if (i.unitId === unitId && i.layout) { const hit = (i.layout.interior || []).find((x) => x.id === zoneId); if (hit) return hit.name; } }
+  for (const l of data.layouts || []) { const hit = layoutZoneLists(l).find((x) => x.id === zoneId); if (hit) return hit.name; }
+  for (const i of data.inspections) { if (i.unitId === unitId && i.layout) { const hit = layoutZoneLists(i.layout).find((x) => x.id === zoneId); if (hit) return hit.name; } }
   return zoneId;
 }
 const MAX_INTERIOR = 12;
@@ -69,7 +79,15 @@ function clampZone(z) {
   const w = clamp(z.w || 19, 10, 46), h = clamp(z.h || 9.2, 6, 30);
   return { ...z, w, h, x: clamp(z.x, INTERIOR_BOUNDS.x0 + w / 2, INTERIOR_BOUNDS.x1 - w / 2), y: clamp(z.y, INTERIOR_BOUNDS.y0 + h / 2, INTERIOR_BOUNDS.y1 - h / 2) };
 }
-const freshLayout = (base, name) => ({ id: "lay_" + uid(), name, interior: (base ? base.interior : []).map((z) => ({ ...z })), createdAt: Date.now(), updatedAt: Date.now() });
+const MAX_EXTERIOR = 16;
+// Exterior shots may sit anywhere on the map, including over the body (that's where the roof lives).
+const clampShot = (z) => ({ ...z, x: clamp(z.x, SHOT_BOUNDS.x0, SHOT_BOUNDS.x1), y: clamp(z.y, SHOT_BOUNDS.y0, SHOT_BOUNDS.y1) });
+// Layouts always carry an explicit exterior list so a saved layout is self-contained; a new
+// one starts from the standard walkaround (rooms optional), keeping the standard ids so
+// registry history keeps matching.
+const exteriorAsStored = (list) => list.map((z) => ({ id: z.id, name: z.name, tip: z.tip || "", group: z.group, x: z.pos ? z.pos.x : z.x, y: z.pos ? z.pos.y : z.y }));
+const freshLayout = (base, name) => ({ id: "lay_" + uid(), name, interior: (base ? base.interior : []).map((z) => ({ ...z })),
+  exterior: exteriorAsStored(base && Array.isArray(base.exterior) ? base.exterior : EXTERIOR_ZONES), createdAt: Date.now(), updatedAt: Date.now() });
 
-export { EXTERIOR_ZONES, DEFAULT_INTERIOR, INTERIOR_BOUNDS, zonesFromInterior, ZONES, ZONE_BY_ID, GROUPS, DEFAULT_LAYOUT,
-  zoneById, layoutFor, zonesForUnit, zonesForInsp, layoutSnapshot, zoneLabel, MAX_INTERIOR, clampZone, freshLayout };
+export { EXTERIOR_ZONES, DEFAULT_INTERIOR, INTERIOR_BOUNDS, SHOT_BOUNDS, EXTERIOR_GROUPS, zonesFromInterior, zonesFromLayout, ZONES, ZONE_BY_ID, GROUPS, DEFAULT_LAYOUT,
+  zoneById, layoutFor, zonesForUnit, zonesForInsp, layoutSnapshot, zoneLabel, MAX_INTERIOR, MAX_EXTERIOR, clampZone, clampShot, exteriorAsStored, freshLayout };

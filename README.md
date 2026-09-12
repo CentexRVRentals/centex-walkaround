@@ -17,7 +17,7 @@ Without a `.env.local` the app is a fully working **offline build**: photos and 
 - **Web app:** Netlify, `npm run build`, publish `dist` (netlify.toml is included; git push auto-deploys).
 - **Edge Functions:** `supabase functions deploy compare-zone` and `supabase functions deploy draft-notice` after `supabase secrets set ANTHROPIC_API_KEY=...` (optional `ANTHROPIC_MODEL`, default `claude-sonnet-5`).
 - **Users:** create staff in Supabase Auth; set `app_metadata.org_id` (and `wa_role: "owner"` for whoever finalizes returns).
-- **Database:** run `supabase/schema.sql`, then `supabase/schema-002-sync.sql`, in the SQL editor. Together they create the `wa_*` tables, RLS, the private photo bucket, and the sync trigger.
+- **Database:** run `supabase/schema.sql`, then `supabase/schema-002-sync.sql`, then `supabase/schema-003-exterior.sql`, in the SQL editor. Together they create the `wa_*` tables, RLS, the private photo bucket, and the sync trigger.
 - **Cloud sync:** on by itself once a staff member signs in (records a few seconds after each change, photos in the background, other phones' photos on first view). Settings › Cloud sync shows status and has a Sync now button; Settings › Fleet Ops link imports trailers from the CRM's `fleet` table.
 
 ## Layout

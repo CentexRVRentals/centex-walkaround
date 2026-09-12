@@ -42,7 +42,7 @@ export function InspectionScreen({ insp, unit, baseline, zones, photos, onBack, 
           </div>
         </div>
       </div>
-      {GROUPS.map((g) => (
+      {GROUPS.filter((g) => zones.some((z) => z.group === g)).map((g) => (
         <Section key={g} title={g} count={`${zones.filter((z) => z.group === g && insp.zones[z.id] && insp.zones[z.id].photoId).length}/${zones.filter((z) => z.group === g).length}`}>
           {zones.filter((z) => z.group === g).map((z) => {
             const zi = insp.zones[z.id]; const s = states[z.id];

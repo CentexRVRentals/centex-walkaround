@@ -29,7 +29,7 @@ export function UnitFormSheet({ open, unit, layouts, onClose, onSave, onDelete, 
           {Object.entries(UNIT_STATUS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
         </select>
       </Field>
-      <Field label="Interior layout" hint="Sets which interior zones staff photograph. Exterior zones are the same for every trailer. Changing it affects new inspections only.">
+      <Field label="Layout" hint="Sets which zones staff photograph, outside and in. Changing it affects new inspections only.">
         <select value={f.layoutId || "default"} onChange={(e) => setF({ ...f, layoutId: e.target.value })} style={inputStyle}>
           <option value="default">{DEFAULT_LAYOUT.name} (built in)</option>
           {(layouts || []).map((l) => <option key={l.id} value={l.id}>{l.name} ({l.interior.length} zones)</option>)}

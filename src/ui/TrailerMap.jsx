@@ -4,7 +4,7 @@ import { SEV } from "../domain/severity.js";
 import { ZONES, INTERIOR_BOUNDS } from "../domain/zones.js";
 
 // Top-down walkaround map: navigation for a shoot, damage map for a unit, and
-// the canvas of the layout designer (editable mode).
+// the canvas of the layout designer (editable mode: every zone drags; rooms resize).
 export function TrailerMap({ zones = ZONES, states = {}, marks = [], onSelect, activeId, height = 330, showLabels = true, editable = false, selectedId, onMove, onCanvasTap }) {
   const svgRef = useRef(null); const dragRef = useRef(null);
   const stateStyle = (s) => ({
@@ -77,12 +77,13 @@ export function TrailerMap({ zones = ZONES, states = {}, marks = [], onSelect, a
         const maxChars = Math.max(3, Math.floor(w / 1.95));
         const shown = label.length > maxChars ? label.slice(0, Math.max(2, maxChars - 1)) + "…" : label;
         const fs = Math.min(3.5, h * 0.42, (w / Math.max(1, shown.length)) * 1.75);
-        const clickable = (!!onSelect && !editable) || (editable && isInt);
+        const clickable = (!!onSelect && !editable) || editable;
+        const under = (z.short || z.name || "").length > 13 ? (z.short || z.name).slice(0, 12) + "…" : (z.short || z.name || "");
         return (
           <g key={z.id} transform={`translate(${z.pos.x} ${z.pos.y})`}
             onClick={onSelect && !editable ? () => onSelect(z.id) : undefined}
-            onPointerDown={editable && isInt ? (e) => startDrag(e, z) : undefined}
-            style={{ cursor: clickable ? (editable ? "grab" : "pointer") : "default", opacity: editable && !isInt ? 0.45 : 1 }}
+            onPointerDown={editable ? (e) => startDrag(e, z) : undefined}
+            style={{ cursor: clickable ? (editable ? "grab" : "pointer") : "default" }}
             role={clickable ? "button" : undefined} aria-label={z.name}>
             {isInt ? (
               <>
@@ -93,9 +94,11 @@ export function TrailerMap({ zones = ZONES, states = {}, marks = [], onSelect, a
             ) : (
               <>
                 {active ? <circle r="7.3" fill="none" stroke={C.ink} strokeWidth="1" /> : null}
+                {selected ? <circle r="7.6" fill="none" stroke={C.blue} strokeWidth="0.7" strokeDasharray="1.4 1" /> : null}
                 <circle r="9" fill="transparent" />
                 <circle r="5.2" fill={st.fill} stroke={st.stroke} strokeWidth="1.1" strokeDasharray={st.dash || undefined} />
                 {glyph(st.glyph, st.text)}
+                {editable ? <text y="8.9" fontSize="2.6" fontWeight="600" fill={C.ink2} textAnchor="middle" fontFamily={FONT_BODY}>{under}</text> : null}
               </>
             )}
             {zm.slice(0, 4).map((m, i) => {
